@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stopwatch</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1c1c1e;
+      --panel: #222326;
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.68);
+      --muted-strong: rgba(255, 255, 255, 0.82);
+      --green: #34c759;
+      --red: #ff3b30;
+      --grey: #3a3a3c;
+      --grey-hover: #47474a;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 32%), var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .app {
+      width: min(980px, 100%);
+      min-height: 100%;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 22px;
+      padding: 40px 24px 28px;
+    }
+
+    .header {
+      text-align: center;
+      padding-top: 8px;
+    }
+
+    .timer {
+      font-size: clamp(72px, 11vw, 132px);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      font-weight: 300;
+      font-variant-numeric: tabular-nums;
+      text-rendering: optimizeLegibility;
+      text-shadow: 0 0 24px rgba(255, 255, 255, 0.06);
+    }
+
+    .subtitle {
+      margin-top: 12px;
+      font-size: 14px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+
+    .history-shell {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      min-height: 280px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .history-head {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr 1fr 1.1fr;
+      gap: 0;
+      padding: 18px 20px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted-strong);
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .history-body {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr 1fr 1.1fr;
+      gap: 0;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      align-items: center;
+      font-size: 15px;
+    }
+
+    .row:last-child {
+      border-bottom: none;
+    }
+
+    .row span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .empty-state {
+      padding: 30px 20px;
+      color: rgba(255, 255, 255, 0.42);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 18px;
+      padding-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      min-width: 112px;
+      height: 52px;
+      padding: 0 24px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 0.14s ease, filter 0.14s ease, background-color 0.14s ease, opacity 0.14s ease;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+      filter: brightness(0.98);
+    }
+
+    button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+
+    .btn-green {
+      background: linear-gradient(180deg, #41d968, #28b84d);
+      color: white;
+    }
+
+    .btn-red {
+      background: linear-gradient(180deg, #ff5b52, #e6362c);
+      color: white;
+    }
+
+    .btn-grey {
+      background: linear-gradient(180deg, #4a4a4d, #333336);
+      color: #f1f1f3;
+    }
+
+    .btn-grey.secondary {
+      background: linear-gradient(180deg, #3f3f42, #2d2d30);
+    }
+
+    .session-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .session-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.12);
+    }
+
+    @media (max-width: 760px) {
+      .app {
+        padding: 24px 14px 20px;
+        gap: 18px;
+      }
+
+      .history-shell {
+        border-radius: 20px;
+      }
+
+      .history-head,
+      .row {
+        grid-template-columns: 1.3fr 1fr 1fr 1.15fr;
+        padding-left: 14px;
+        padding-right: 14px;
+        font-size: 13px;
+      }
+
+      .history-head {
+        font-size: 10px;
+      }
+
+      button {
+        min-width: 102px;
+        height: 48px;
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="header" aria-label="Stopwatch display">
+      <div id="timer" class="timer">00:00:00.00</div>
+      <div class="subtitle">GATE study session tracker with timestamped logs</div>
+      <div class="session-tag"><span class="session-dot"></span><span id="sessionState">Ready</span></div>
+    </section>
+
+    <section class="history-shell" aria-label="Session history">
+      <div class="history-head" role="row">
+        <span>Event</span>
+        <span>Lap/Split Duration</span>
+        <span>Total Running Time</span>
+        <span>Time of Day (Timestamp)</span>
+      </div>
+      <div id="historyBody" class="history-body" aria-live="polite"></div>
+    </section>
+
+    <div class="controls" aria-label="Stopwatch controls">
+      <button id="resetBtn" class="btn-grey secondary" disabled>Reset</button>
+      <button id="lapBtn" class="btn-grey" disabled>Lap</button>
+      <button id="startBtn" class="btn-green">Start</button>
+      <button id="stopBtn" class="btn-red" disabled>Stop</button>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const timerEl = document.getElementById('timer');
+      const historyBody = document.getElementById('historyBody');
+      const sessionState = document.getElementById('sessionState');
+      const resetBtn = document.getElementById('resetBtn');
+      const lapBtn = document.getElementById('lapBtn');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+
+      const state = {
+        running: false,
+        startTime: 0,
+        elapsedBeforePause: 0,
+        animationFrameId: null,
+        lapStartElapsed: 0,
+        lapCount: 0,
+        rows: []
+      };
+
+      function pad(number, length = 2) {
+        return String(number).padStart(length, '0');
+      }
+
+      function formatElapsed(milliseconds) {
+        const safeMs = Math.max(0, Math.floor(milliseconds));
+        const totalHundredths = Math.floor((safeMs % 1000) / 10);
+        const totalSeconds = Math.floor(safeMs / 1000);
+        const seconds = totalSeconds % 60;
+        const minutes = Math.floor(totalSeconds / 60) % 60;
+        const hours = Math.floor(totalSeconds / 3600);
+        return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(totalHundredths)}`;
+      }
+
+      function formatClockTime(date) {
+        return date.toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        });
+      }
+
+      function currentElapsed() {
+        if (state.running) {
+          return state.elapsedBeforePause + (performance.now() - state.startTime);
+        }
+        return state.elapsedBeforePause;
+      }
+
+      function renderTimer() {
+        timerEl.textContent = formatElapsed(currentElapsed());
+      }
+
+      function tick() {
+        renderTimer();
+        state.animationFrameId = requestAnimationFrame(tick);
+      }
+
+      function setControls() {
+        if (state.running) {
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          lapBtn.disabled = false;
+          resetBtn.disabled = true;
+          sessionState.textContent = 'Running';
+        } else {
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+          lapBtn.disabled = true;
+          resetBtn.disabled = state.elapsedBeforePause === 0 && state.rows.length === 0;
+          sessionState.textContent = state.elapsedBeforePause > 0 ? 'Paused' : 'Ready';
+        }
+      }
+
+      function addRow(event, duration, total, timestamp) {
+        state.rows.unshift({ event, duration, total, timestamp });
+        renderHistory();
+      }
+
+      function renderHistory() {
+        historyBody.innerHTML = '';
+
+        if (!state.rows.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.textContent = 'Session logs will appear here with lap times, total running time, and local timestamps.';
+          historyBody.appendChild(empty);
+          return;
+        }
+
+        state.rows.forEach((entry) => {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.innerHTML = `
+            <span>${entry.event}</span>
+            <span>${entry.duration}</span>
+            <span>${entry.total}</span>
+            <span>${entry.timestamp}</span>
+          `;
+          historyBody.appendChild(row);
+        });
+      }
+
+      function startTimer() {
+        if (state.running) {
+          return;
+        }
+
+        const now = performance.now();
+        state.running = true;
+        state.startTime = now;
+        state.lapStartElapsed = state.elapsedBeforePause;
+        if (!state.rows.length || state.rows[0].event !== 'Session Started') {
+          addRow('Session Started', '--', formatElapsed(0), formatClockTime(new Date()));
+        }
+        setControls();
+        cancelAnimationFrame(state.animationFrameId);
+        tick();
+      }
+
+      function stopTimer() {
+        if (!state.running) {
+          return;
+        }
+
+        state.elapsedBeforePause = currentElapsed();
+        state.running = false;
+        cancelAnimationFrame(state.animationFrameId);
+        renderTimer();
+        addRow('Session Paused', '--', formatElapsed(state.elapsedBeforePause), formatClockTime(new Date()));
+        setControls();
+      }
+
+      function lapTimer() {
+        if (!state.running) {
+          return;
+        }
+
+        const elapsedNow = currentElapsed();
+        const lapDuration = elapsedNow - state.lapStartElapsed;
+        state.lapStartElapsed = elapsedNow;
+        state.lapCount += 1;
+        addRow(`Lap ${state.lapCount}`, formatElapsed(lapDuration), formatElapsed(elapsedNow), formatClockTime(new Date()));
+      }
+
+      function resetTimer() {
+        if (state.running) {
+          return;
+        }
+
+        cancelAnimationFrame(state.animationFrameId);
+        state.elapsedBeforePause = 0;
+        state.startTime = 0;
+        state.lapStartElapsed = 0;
+        state.lapCount = 0;
+        state.rows = [];
+        timerEl.textContent = '00:00:00.89';
+        renderHistory();
+        setControls();
+      }
+
+      startBtn.addEventListener('click', startTimer);
+      stopBtn.addEventListener('click', stopTimer);
+      lapBtn.addEventListener('click', lapTimer);
+      resetBtn.addEventListener('click', resetTimer);
+
+      renderTimer();
+      renderHistory();
+      setControls();
+    })();
+  </script>
+</body>
+</html>
