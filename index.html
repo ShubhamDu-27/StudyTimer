@@ -186,6 +186,11 @@
       background: linear-gradient(180deg, #3f3f42, #2d2d30);
     }
 
+    .btn-export {
+      background: linear-gradient(180deg, #4b4b4f, #2f2f33);
+      color: #f1f1f3;
+    }
+
     .session-tag {
       display: inline-flex;
       align-items: center;
@@ -237,7 +242,7 @@
 <body>
   <main class="app">
     <section class="header" aria-label="Stopwatch display">
-      <div id="timer" class="timer">00:00:00.00</div>
+      <div id="timer" class="timer">00:00:00.89</div>
       <div class="subtitle">GATE study session tracker with timestamped logs</div>
       <div class="session-tag"><span class="session-dot"></span><span id="sessionState">Ready</span></div>
     </section>
@@ -255,6 +260,7 @@
     <div class="controls" aria-label="Stopwatch controls">
       <button id="resetBtn" class="btn-grey secondary" disabled>Reset</button>
       <button id="lapBtn" class="btn-grey" disabled>Lap</button>
+      <button id="exportBtn" class="btn-export" disabled>Export to CSV</button>
       <button id="startBtn" class="btn-green">Start</button>
       <button id="stopBtn" class="btn-red" disabled>Stop</button>
     </div>
@@ -267,17 +273,22 @@
       const sessionState = document.getElementById('sessionState');
       const resetBtn = document.getElementById('resetBtn');
       const lapBtn = document.getElementById('lapBtn');
+      const exportBtn = document.getElementById('exportBtn');
       const startBtn = document.getElementById('startBtn');
       const stopBtn = document.getElementById('stopBtn');
 
+      const STORAGE_KEY = 'gate-study-stopwatch-state-v1';
+      const RESET_DISPLAY = '00:00:00.89';
+
       const state = {
         running: false,
-        startTime: 0,
+        startedAtEpoch: 0,
         elapsedBeforePause: 0,
         animationFrameId: null,
         lapStartElapsed: 0,
         lapCount: 0,
-        rows: []
+        rows: [],
+        lastPersistedBucket: -1
       };
 
       function pad(number, length = 2) {
@@ -303,19 +314,85 @@
         });
       }
 
+      function escapeCsvValue(value) {
+        return `"${String(value).replace(/"/g, '""')}"`;
+      }
+
+      function buildSnapshot() {
+        return {
+          running: state.running,
+          startedAtEpoch: state.startedAtEpoch,
+          elapsedBeforePause: state.elapsedBeforePause,
+          lapStartElapsed: state.lapStartElapsed,
+          lapCount: state.lapCount,
+          rows: state.rows,
+          updatedAt: Date.now()
+        };
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(buildSnapshot()));
+        } catch (error) {
+          // Ignore storage failures so the stopwatch still works offline or in private mode.
+        }
+      }
+
+      function clearSavedState() {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch (error) {
+          // Ignore storage failures.
+        }
+      }
+
+      function loadSavedState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            return;
+          }
+
+          const saved = JSON.parse(raw);
+          if (!saved || !Array.isArray(saved.rows)) {
+            return;
+          }
+
+          state.running = Boolean(saved.running);
+          state.startedAtEpoch = Number(saved.startedAtEpoch) || 0;
+          state.elapsedBeforePause = Number(saved.elapsedBeforePause) || 0;
+          state.lapStartElapsed = Number(saved.lapStartElapsed) || state.elapsedBeforePause;
+          state.lapCount = Number(saved.lapCount) || 0;
+          state.rows = saved.rows;
+
+          if (state.running && !state.startedAtEpoch) {
+            state.startedAtEpoch = Date.now();
+          }
+        } catch (error) {
+          clearSavedState();
+        }
+      }
+
       function currentElapsed() {
         if (state.running) {
-          return state.elapsedBeforePause + (performance.now() - state.startTime);
+          return state.elapsedBeforePause + (Date.now() - state.startedAtEpoch);
         }
         return state.elapsedBeforePause;
       }
 
       function renderTimer() {
-        timerEl.textContent = formatElapsed(currentElapsed());
+        timerEl.textContent = state.running || state.elapsedBeforePause > 0 || state.rows.length
+          ? formatElapsed(currentElapsed())
+          : RESET_DISPLAY;
       }
 
       function tick() {
         renderTimer();
+        const bucket = Math.floor(currentElapsed() / 100);
+        if (bucket !== state.lastPersistedBucket) {
+          state.lastPersistedBucket = bucket;
+          saveState();
+        }
         state.animationFrameId = requestAnimationFrame(tick);
       }
 
@@ -325,12 +402,14 @@
           stopBtn.disabled = false;
           lapBtn.disabled = false;
           resetBtn.disabled = true;
+          exportBtn.disabled = state.rows.length === 0;
           sessionState.textContent = 'Running';
         } else {
           startBtn.disabled = false;
           stopBtn.disabled = true;
           lapBtn.disabled = true;
           resetBtn.disabled = state.elapsedBeforePause === 0 && state.rows.length === 0;
+          exportBtn.disabled = state.rows.length === 0;
           sessionState.textContent = state.elapsedBeforePause > 0 ? 'Paused' : 'Ready';
         }
       }
@@ -338,6 +417,12 @@
       function addRow(event, duration, total, timestamp) {
         state.rows.unshift({ event, duration, total, timestamp });
         renderHistory();
+        saveState();
+      }
+
+      function syncRowButtons() {
+        exportBtn.disabled = state.rows.length === 0;
+        resetBtn.disabled = state.running || state.rows.length === 0;
       }
 
       function renderHistory() {
@@ -369,14 +454,15 @@
           return;
         }
 
-        const now = performance.now();
+        const hasExistingHistory = state.rows.length > 0;
         state.running = true;
-        state.startTime = now;
+        state.startedAtEpoch = Date.now();
         state.lapStartElapsed = state.elapsedBeforePause;
-        if (!state.rows.length || state.rows[0].event !== 'Session Started') {
+        if (!hasExistingHistory) {
           addRow('Session Started', '--', formatElapsed(0), formatClockTime(new Date()));
         }
         setControls();
+        syncRowButtons();
         cancelAnimationFrame(state.animationFrameId);
         tick();
       }
@@ -388,10 +474,12 @@
 
         state.elapsedBeforePause = currentElapsed();
         state.running = false;
+        state.startedAtEpoch = 0;
         cancelAnimationFrame(state.animationFrameId);
         renderTimer();
         addRow('Session Paused', '--', formatElapsed(state.elapsedBeforePause), formatClockTime(new Date()));
         setControls();
+        syncRowButtons();
       }
 
       function lapTimer() {
@@ -406,6 +494,40 @@
         addRow(`Lap ${state.lapCount}`, formatElapsed(lapDuration), formatElapsed(elapsedNow), formatClockTime(new Date()));
       }
 
+      function exportCsv() {
+        if (!state.rows.length) {
+          return;
+        }
+
+        const header = [
+          'Event',
+          'Lap/Split Duration',
+          'Total Running Time',
+          'Time of Day (Timestamp)'
+        ];
+        const lines = [header.map(escapeCsvValue).join(',')];
+
+        state.rows.slice().reverse().forEach((row) => {
+          lines.push([
+            row.event,
+            row.duration,
+            row.total,
+            row.timestamp
+          ].map(escapeCsvValue).join(','));
+        });
+
+        const csv = lines.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `gate-study-log-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      }
+
       function resetTimer() {
         if (state.running) {
           return;
@@ -413,23 +535,52 @@
 
         cancelAnimationFrame(state.animationFrameId);
         state.elapsedBeforePause = 0;
-        state.startTime = 0;
+        state.startedAtEpoch = 0;
         state.lapStartElapsed = 0;
         state.lapCount = 0;
         state.rows = [];
-        timerEl.textContent = '00:00:00.89';
+        state.lastPersistedBucket = -1;
+        clearSavedState();
+        timerEl.textContent = RESET_DISPLAY;
         renderHistory();
         setControls();
+        syncRowButtons();
+      }
+
+      function restoreState() {
+        loadSavedState();
+        renderHistory();
+
+        if (state.running && state.startedAtEpoch) {
+          state.lastPersistedBucket = Math.floor(currentElapsed() / 100);
+          cancelAnimationFrame(state.animationFrameId);
+          tick();
+        } else {
+          renderTimer();
+        }
+
+        setControls();
+        syncRowButtons();
       }
 
       startBtn.addEventListener('click', startTimer);
       stopBtn.addEventListener('click', stopTimer);
       lapBtn.addEventListener('click', lapTimer);
       resetBtn.addEventListener('click', resetTimer);
+      exportBtn.addEventListener('click', exportCsv);
 
-      renderTimer();
-      renderHistory();
-      setControls();
+      window.addEventListener('beforeunload', () => {
+        if (state.running) {
+          state.elapsedBeforePause = currentElapsed();
+          state.startedAtEpoch = Date.now();
+        }
+        saveState();
+      });
+
+      restoreState();
+      if (!state.rows.length) {
+        timerEl.textContent = RESET_DISPLAY;
+      }
     })();
   </script>
 </body>
